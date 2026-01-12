@@ -10,7 +10,11 @@ from telegram.ext import (
     ContextTypes,
 )
 
-TOKEN = "YOUR-TELEGRAM-TOKEN"
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+TOKEN = os.getenv("TELEGRAM_TOKEN")
 DATA_FILE = "reminders.json"
 
 logging.basicConfig(level=logging.INFO)
