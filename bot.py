@@ -10,7 +10,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
-TOKEN = "8561270657:AAHCKiA02C8K8WZv-LJ3QQJcMEXO2S-N2gM"
+TOKEN = "YOUR-TELEGRAM-TOKEN"
 DATA_FILE = "reminders.json"
 
 logging.basicConfig(level=logging.INFO)
