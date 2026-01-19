@@ -1,7 +1,7 @@
-import json
 import logging
-from datetime import time, datetime, date, timedelta
-from helper import ensure_user_list
+from datetime import datetime, date, time, timezone, timedelta
+from helper import save_user_data, load_data
+from publish import send_reminder
 
 from telegram import Update
 from telegram.ext import (
@@ -15,28 +15,18 @@ import os
 
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-DATA_FILE = "reminders.json"
 
 logging.basicConfig(level=logging.INFO)
 
-# ---------- Persistence ----------
-def load_data():
-    try:
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+tmp_offset_no_bd = 0
 
 # ---------- Commands ----------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Hi!\n\n"
         "I can send you daily reminders.\n\n"
         "Use:\n"
+        "/settz N To set your timezone to UTC+N (default timezone is UTC+0)\n\n"
         "/setdaily HH:MM Your reminder text\n"
         "Example:\n"
         "/setdaily 08:00 Take my medication\n\n"
@@ -45,37 +35,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Example:\n"
         "/set 15:50 Meeting in 10 minutes"
     )
-async def schedule_daily_reminder(context, chat_id, text, hour, minute):
-    """Schedules a daily reminder using run_once and reschedules itself."""
-    now = datetime.now()
-    run_date = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
-    if run_date <= now:
-        run_date += timedelta(days=1)
+async def set_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Usage: /settz <UTC offset>\n\n"
+            "Examples:\n"
+            "/settz 0   (UTC)\n"
+            "/settz 1   (France, Germany)\n"
+            "/settz -5  (New York)\n"
+            "/settz 9   (Japan)"
+        )
+        return
 
-    delay = (run_date - now).total_seconds()
+    try:
+        offset = int(context.args[0])
+        if offset < -12 or offset > 14:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("❌ Offset must be a number between -12 and +14.")
+        return
 
-    context.job_queue.run_once(
-        callback=daily_job_handler,
-        when=delay,
-        chat_id=chat_id,
-        data={"text": text, "hour": hour, "minute": minute},
+    user_id = str(update.effective_user.id)
+
+    sign = "+" if offset >= 0 else ""
+    await update.message.reply_text(
+        f"✅ Timezone set to UTC{sign}{offset}\n\n"
+        "All future reminders will use this timezone."
     )
-    logging.info(f"Daily reminder scheduled in {delay:.1f}s at {run_date}")
 
-async def daily_job_handler(context):
-    """Sends the reminder and reschedules itself for tomorrow."""
-    job_data = context.job.data
-    chat_id = context.job.chat_id
-    text = job_data["text"]
-    hour = job_data["hour"]
-    minute = job_data["minute"]
+    global tmp_offset_no_bd
+    tmp_offset_no_bd = offset
 
-    # send the message
-    await context.bot.send_message(chat_id=chat_id, text=f"⏰ Daily reminder:\n{text}")
+    logging.info(f"User {user_id} set timezone to UTC{sign}{offset}")
 
-    # reschedule for tomorrow
-    await schedule_daily_reminder(context, chat_id, text, hour, minute)
 
 async def set_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Command to set a daily reminder."""
@@ -92,25 +85,29 @@ async def set_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(update.effective_user.id)
     data = load_data()
-    ensure_user_list(data, user_id)
+    save_user_data(data, user_id, "daily", hour, minute, reminder_text)
 
-    # Store reminder
-    data[user_id].append({
-        "type": "daily",
-        "hour": hour,
-        "minute": minute,
-        "text": reminder_text,
-    })
-    save_data(data)
+    user_tz = timezone(timedelta(hours=tmp_offset_no_bd))
+    print(tmp_offset_no_bd)
+    print(user_tz)
+    run_date = time(hour=hour, minute=minute, tzinfo=user_tz)
+    print(run_date)
+    print(hour)
+    print(minute)
 
-    # Schedule the job
-    await schedule_daily_reminder(context, update.effective_chat.id, reminder_text, hour, minute)
+    context.job_queue.run_daily(
+        callback=send_reminder,
+        time=run_date,
+        chat_id=update.effective_chat.id,
+        data=reminder_text,
+    )
 
     await update.message.reply_text(f"✅ Daily reminder set for {hour:02d}:{minute:02d}\n📝 {reminder_text}")
 
-
 async def set_once(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        if len(context.args) < 2:
+            raise ValueError
         # Case 1: date + time provided
         if len(context.args[0]) == 10 and context.args[0].count("-") == 2:
             date_str = context.args[0]
@@ -149,39 +146,15 @@ async def set_once(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Time must be in the future.")
         return
 
-    user_id = str(update.effective_user.id)
-
-    data = load_data()
-    data.setdefault(user_id, [])
-    print(data)
-    ensure_user_list(data, user_id)
-
-    data[user_id].append({
-        "type": "daily",
-        "hour": hour,
-        "minute": minute,
-        "text": reminder_text,
-    })
-
-    save_data(data)
-
     delay = (run_date - datetime.now()).total_seconds()
-
-    # HARD SAFETY GUARD
-    if delay <= 0:
-        delay = 5  # seconds
 
     logging.info(f"Scheduling one-time reminder in {delay} seconds")
 
     context.job_queue.run_once(
-        send_once_reminder,
+        send_reminder,
         when=delay,
         chat_id=update.effective_chat.id,
-        data={
-            "user_id": user_id,
-            "text": reminder_text,
-            "run_at": run_date.isoformat(),
-        },
+        data=reminder_text
     )
 
     await update.message.reply_text(
@@ -190,45 +163,44 @@ async def set_once(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📝 {reminder_text}"
     )
 
+async def log_all_jobs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    jobs = context.job_queue.jobs()
 
-# ---------- Job ----------
-async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(
-        chat_id=context.job.chat_id,
-        text=f"⏰ Reminder:\n{context.job.data}"
-    )
+    logging.info(f"📋 JobQueue currently has {len(jobs)} jobs")
 
+    if not jobs:
+        await update.message.reply_text("📭 JobQueue is empty — no scheduled jobs.")
+        return
 
-async def send_once_reminder(context: ContextTypes.DEFAULT_TYPE):
-    logging.info("One-time reminder fired")
+    lines = [f"📋 JobQueue has {len(jobs)} job(s):\n"]
 
-    job = context.job
-    await context.bot.send_message(
-        chat_id=job.chat_id,
-        text=f"⏰ One-time reminder:\n{job.data['text']}"
-    )
+    for job in jobs:
+        line = (
+            f"• Name: {job.name}\n"
+            f"  🕒 Next run: {job.next_t}\n"
+            f"  💬 Chat ID: {job.chat_id}\n"
+            f"  📝 Data: {job.data}\n"
+        )
+        lines.append(line)
 
-    user_id = job.data["user_id"]
-    run_at = job.data["run_at"]
+        # also log to console
+        logging.info(
+            f"🕒 Job name={job.name} | chat_id={job.chat_id} | "
+            f"next_run={job.next_t} | data={job.data}"
+        )
 
-    data = load_data()
-    if user_id in data:
-        data[user_id] = [
-            r for r in data[user_id]
-            if r.get("run_at") != run_at
-        ]
-        save_data(data)
+    await update.message.reply_text("\n".join(lines))
 
 
 # ---------- Main ----------
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help))
     app.add_handler(CommandHandler("setdaily", set_daily))
     app.add_handler(CommandHandler("set", set_once))
-
-    logging.info(f"JobQueue present: {app.job_queue}")
+    app.add_handler(CommandHandler("settz", set_timezone))
+    app.add_handler(CommandHandler("debug", log_all_jobs))
 
     app.run_polling()
 
