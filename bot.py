@@ -88,12 +88,7 @@ async def set_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user_data(data, user_id, "daily", hour, minute, reminder_text)
 
     user_tz = timezone(timedelta(hours=tmp_offset_no_bd))
-    print(tmp_offset_no_bd)
-    print(user_tz)
     run_date = time(hour=hour, minute=minute, tzinfo=user_tz)
-    print(run_date)
-    print(hour)
-    print(minute)
 
     context.job_queue.run_daily(
         callback=send_reminder,
