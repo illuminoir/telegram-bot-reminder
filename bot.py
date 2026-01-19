@@ -158,34 +158,6 @@ async def set_once(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📝 {reminder_text}"
     )
 
-async def log_all_jobs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    jobs = context.job_queue.jobs()
-
-    logging.info(f"📋 JobQueue currently has {len(jobs)} jobs")
-
-    if not jobs:
-        await update.message.reply_text("📭 JobQueue is empty — no scheduled jobs.")
-        return
-
-    lines = [f"📋 JobQueue has {len(jobs)} job(s):\n"]
-
-    for job in jobs:
-        line = (
-            f"• Name: {job.name}\n"
-            f"  🕒 Next run: {job.next_t}\n"
-            f"  💬 Chat ID: {job.chat_id}\n"
-            f"  📝 Data: {job.data}\n"
-        )
-        lines.append(line)
-
-        # also log to console
-        logging.info(
-            f"🕒 Job name={job.name} | chat_id={job.chat_id} | "
-            f"next_run={job.next_t} | data={job.data}"
-        )
-
-    await update.message.reply_text("\n".join(lines))
-
 
 # ---------- Main ----------
 def main():
@@ -195,7 +167,6 @@ def main():
     app.add_handler(CommandHandler("setdaily", set_daily))
     app.add_handler(CommandHandler("set", set_once))
     app.add_handler(CommandHandler("settz", set_timezone))
-    app.add_handler(CommandHandler("debug", log_all_jobs))
 
     app.run_polling()
 
