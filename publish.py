@@ -1,19 +1,20 @@
 from telegram.ext import ContextTypes
 
-async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(
-        chat_id=context.job.chat_id,
-        text=f"⏰ Reminder:\n{context.job.data}"
-    )
-    '''
-    user_id = context.job.data["user_id"]
-    run_at = context.job.data["run_at"]
+from db_utils import delete_once_reminder
 
-    data = load_data()
-    if user_id in data:
-        data[user_id] = [
-            r for r in data[user_id]
-            if r.get("run_at") != run_at
-        ]
-        save_data(data)
-    '''
+
+async def send_reminder(context):
+    job = context.job
+    data = job.data
+
+    text = data["text"]
+    reminder_id = data.get("reminder_id")   # only exists for once reminders
+
+    await context.bot.send_message(
+        chat_id=job.chat_id,
+        text=f"⏰ Reminder:\n{text}"
+    )
+
+    # If this was a one-time reminder → delete it from DB
+    if reminder_id is not None:
+        delete_once_reminder(reminder_id)
