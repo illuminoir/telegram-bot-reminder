@@ -4,9 +4,14 @@ from pathlib import Path
 DB_FILE = Path("reminders.db")
 
 
-# Initialize the database if it doesn't exist
+def get_conn():
+    """Get a database connection."""
+    return sqlite3.connect(DB_FILE)
+
+
 def init_db():
-    with sqlite3.connect(DB_FILE) as conn:
+    """Initialize the database if it doesn't exist."""
+    with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -29,11 +34,9 @@ def init_db():
         conn.commit()
 
 
-def get_conn():
-    return sqlite3.connect(DB_FILE)
-
-
+# ---------- User Operations ----------
 def set_user_timezone(user_id: int, offset: int):
+    """Set or update a user's timezone offset."""
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -45,6 +48,7 @@ def set_user_timezone(user_id: int, offset: int):
 
 
 def get_user_timezone(user_id: int) -> int:
+    """Get a user's timezone offset (default 0 if not set)."""
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("SELECT timezone_offset FROM users WHERE id = ?", (user_id,))
@@ -52,23 +56,25 @@ def get_user_timezone(user_id: int) -> int:
         return row[0] if row else 0
 
 
-def save_daily_reminder(user_id, hour, minute, text):
+# ---------- Reminder Operations ----------
+def save_daily_reminder(user_id: int, hour: int, minute: int, text: str) -> int:
+    """Save a daily reminder and return its ID."""
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
             """
             INSERT INTO reminders (user_id, type, hour, minute, text)
             VALUES (?, 'daily', ?, ?, ?)
-        """, (user_id, hour, minute, text)
+            """,
+            (user_id, hour, minute, text),
         )
-
         reminder_id = cur.lastrowid
-
         conn.commit()
         return reminder_id
 
 
-def save_once_reminder(user_id, run_at, text):
+def save_once_reminder(user_id: int, run_at, text: str) -> int:
+    """Save a one-time reminder and return its ID."""
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -78,18 +84,26 @@ def save_once_reminder(user_id, run_at, text):
             """,
             (user_id, run_at, text),
         )
-
         reminder_id = cur.lastrowid
-
         conn.commit()
         return reminder_id
 
 
-def delete_once_reminder(reminder_id):
+def delete_reminder(reminder_id: int):
+    """Delete a reminder by ID."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
+        conn.commit()
+
+
+def get_reminders():
+    """Get all active reminders with user timezone info."""
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
-            "DELETE FROM reminders WHERE id = ?",
-            (reminder_id,),
+            """
+            SELECT * FROM reminders r
+            """
         )
-        conn.commit()
+        return cur.fetchall()
