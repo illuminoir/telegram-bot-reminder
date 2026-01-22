@@ -89,7 +89,7 @@ def save_once_reminder(user_id: int, run_at, text: str) -> int:
         return reminder_id
 
 
-def delete_reminder(reminder_id: int):
+def delete_user_reminder(reminder_id: int):
     """Delete a reminder by ID."""
     with get_conn() as conn:
         cur = conn.cursor()
@@ -98,7 +98,7 @@ def delete_reminder(reminder_id: int):
 
 
 def get_reminders():
-    """Get all active reminders with user timezone info."""
+    """Get all reminders"""
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -107,3 +107,22 @@ def get_reminders():
             """
         )
         return cur.fetchall()
+
+
+def get_reminders_for_user(user_id: int):
+    """Get all reminders for a given user."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, run_at, text FROM reminders r WHERE r.user_id = ?", (user_id,)
+        )
+        return cur.fetchall()
+
+def check_reminder_exists(reminder_id: int):
+    """Checks whether a given reminder exists."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM reminders WHERE id = ?", (reminder_id,))
+        res = cur.fetchone()
+        conn.commit()
+        return res is not None

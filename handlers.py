@@ -5,7 +5,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from config import MIN_UTC_OFFSET, MAX_UTC_OFFSET
-from db_utils import set_user_timezone, save_daily_reminder, save_once_reminder
+from db_utils import set_user_timezone, save_daily_reminder, save_once_reminder, get_reminders_for_user, \
+    delete_user_reminder, check_reminder_exists
 from helpers import (
     reply_error,
     reply_success,
@@ -142,3 +143,33 @@ async def set_once(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Time: {run_date.strftime('%Y-%m-%d %H:%M')}\n"
         f"{reminder_text}"
     )
+
+async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    reminders = get_reminders_for_user(user_id)
+
+    if not reminders:
+        await reply_success(update, "No reminders.")
+        return
+
+    lines = ["📋 Reminders:"]
+    for reminder_id, run_at, text in reminders:
+        run_at_str = run_at.replace("+01:00", "")
+        lines.append(f"Reminder n°{reminder_id:>3} | Set to run at: {run_at_str} | Text: {text}")
+
+    message = "\n".join(lines)
+    await reply_success(update, message)
+
+async def delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    try:
+        if len(context.args) < 1:
+            raise ValueError("Not enough arguments")
+        reminder_number = context.args[0]
+        if not check_reminder_exists(reminder_number):
+            await reply_error(update, f"Reminder number {reminder_number} does not exist.")
+            return
+        delete_user_reminder(reminder_number)
+    except ValueError:
+        await reply_error(update, "Usage:\n/delete reminder_number")
+        return

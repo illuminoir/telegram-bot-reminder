@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, time, timezone
 from typing import Optional
 
-from db_utils import delete_reminder, get_reminders
+from db_utils import get_reminders, delete_user_reminder
 from helpers import format_time, format_offset, offset_to_timezone
 
 
@@ -34,7 +34,7 @@ async def send_reminder(context):
     # If this was a one-time reminder, delete it from DB
     if reminder_id is not None and data.get("offset") is None:
         # Only delete if it's a "once" reminder (no offset means it's not daily)
-        delete_reminder(reminder_id)
+        delete_user_reminder(reminder_id)
 
 
 # ---------- Scheduling Functions ----------
