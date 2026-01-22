@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 
 from config import MIN_UTC_OFFSET, MAX_UTC_OFFSET
 from db_utils import set_user_timezone, save_daily_reminder, save_once_reminder, get_reminders_for_user, \
-    delete_user_reminder, check_reminder_exists
+    delete_user_reminder, check_reminder_exists, set_user_language, ensure_user_exists
 from helpers import (
     reply_error,
     reply_success,
@@ -17,40 +17,24 @@ from helpers import (
     is_date_string,
     get_user_tz,
     validate_offset,
-    create_datetime_with_tz,
+    create_datetime_with_tz, t,
 )
+from i18n import SUPPORTED_LANGUAGES
 from scheduler import build_reminder_data, schedule_daily_reminder, schedule_once_reminder
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help message."""
-    await update.message.reply_text(
-        "Hi!\n\n"
-        "I can send you daily reminders.\n\n"
-        "Use:\n"
-        "/settz N To set your timezone to UTC+N (default timezone is UTC+0)\n\n"
-        "/setdaily HH:MM Your reminder text\n"
-        "Example:\n"
-        "/setdaily 08:00 Take my medication\n\n"
-        "But also one time reminders, use:\n"
-        "/set HH:MM Your reminder text\n"
-        "Example:\n"
-        "/set 15:50 Meeting in 10 minutes"
-    )
+    user_id = update.effective_user.id
+    await update.message.reply_text(t(user_id, "help", languages=(', '.join(SUPPORTED_LANGUAGES))))
 
 
 async def set_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Set user's timezone offset."""
+    user_id = update.effective_user.id
+    ensure_user_exists(user_id, update.effective_user.language_code)
     if not context.args:
-        await reply_error(
-            update,
-            "Usage: /settz <UTC offset>\n\n"
-            "Examples:\n"
-            "/settz 0   (UTC)\n"
-            "/settz 1   (France, Germany)\n"
-            "/settz -5  (New York)\n"
-            "/settz 9   (Japan)"
-        )
+        await reply_error(update, t(user_id, "timezone_set_usage"))
         return
 
     try:
@@ -58,31 +42,39 @@ async def set_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not validate_offset(offset):
             raise ValueError
     except ValueError:
-        await reply_error(update, f"Offset must be a number between {MIN_UTC_OFFSET} and +{MAX_UTC_OFFSET}.")
+        await reply_error(
+            update,
+            t(
+                user_id,
+                "timezone_set_error",
+                MIN_UTC_OFFSET=MIN_UTC_OFFSET,
+                MAX_UTC_OFFSET=MAX_UTC_OFFSET,
+            )
+        )
         return
 
-    user_id = update.effective_user.id
     set_user_timezone(user_id, offset)
-
     formatted_offset = format_offset(offset)
-    await reply_success(update, f"Timezone set to {formatted_offset}\n\nAll future reminders will use this timezone.")
+    await reply_success(update, t(user_id, "timezone_set_success", formatted_offset=formatted_offset))
     logging.info(f"User {user_id} set timezone to {formatted_offset}")
 
 
 async def set_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Command to set a daily reminder."""
+    user_id = update.effective_user.id
+    ensure_user_exists(user_id, update.effective_user.language_code)
+
     if len(context.args) < 2:
-        await reply_error(update, "Usage: /setdaily HH:MM reminder text")
+        await reply_error(update, t(user_id, "set_daily_reminder_usage"))
         return
 
     try:
         hour, minute = parse_time(context.args[0])
         reminder_text = " ".join(context.args[1:])
     except ValueError:
-        await reply_error(update, "Time format must be HH:MM (00-23:00-59)")
+        await reply_error(update, t(user_id, "invalid_time"))
         return
 
-    user_id = update.effective_user.id
     user_tz = get_user_tz(user_id)
     run_time = time(hour=hour, minute=minute, tzinfo=user_tz)
     data = build_reminder_data(user_id, reminder_text)
@@ -90,16 +82,18 @@ async def set_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_daily_reminder(user_id, hour, minute, reminder_text)
     schedule_daily_reminder(context.job_queue, update.effective_chat.id, run_time, data)
 
-    await reply_success(update, f"Daily reminder set for {format_time(hour, minute)}\n{reminder_text}")
+    await reply_success(update, t(user_id, "set_daily_reminder_success", time=format_time(hour, minute), text=reminder_text))
 
 
 async def set_once(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Command to set a one-time reminder."""
+
+    user_id = update.effective_user.id
+    ensure_user_exists(user_id, update.effective_user.language_code)
     try:
         if len(context.args) < 2:
-            raise ValueError("Not enough arguments")
+            raise ValueError("ERR:ARGS")
 
-        user_id = update.effective_user.id
         user_tz = get_user_tz(user_id)
 
         # Case 1: date + time provided (YYYY-MM-DD HH:MM)
@@ -109,7 +103,7 @@ async def set_once(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reminder_text = " ".join(context.args[2:])
 
             if not reminder_text:
-                raise ValueError("Missing reminder text")
+                raise ValueError("ERR:NO_TEXT")
 
             run_date = create_datetime_with_tz(reminder_date, hour, minute, user_tz)
 
@@ -121,12 +115,12 @@ async def set_once(update: Update, context: ContextTypes.DEFAULT_TYPE):
             run_date = create_datetime_with_tz(today, hour, minute, user_tz)
 
     except ValueError:
-        await reply_error(update, "Usage:\n/set HH:MM reminder\n/set YYYY-MM-DD HH:MM reminder")
+        await reply_error(update, t(user_id, "set_once_reminder_usage"))
         return
 
     now = datetime.now(user_tz)
     if run_date <= now:
-        await reply_error(update, "Time must be in the future.")
+        await reply_error(update, t(user_id,"time_not_in_future"))
         return
 
     delay = (run_date - now).total_seconds()
@@ -138,38 +132,65 @@ async def set_once(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logging.info(f"Scheduling one-time reminder in {delay:.1f} seconds")
     await reply_success(
-        update,
-        f"One-time reminder set!\n"
-        f"Time: {run_date.strftime('%Y-%m-%d %H:%M')}\n"
-        f"{reminder_text}"
+        update, t(user_id, "set_once_reminder_success",
+                  time=run_date.strftime('%Y-%m-%d %H:%M'),
+                  text=reminder_text)
     )
 
 async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    ensure_user_exists(user_id, update.effective_user.language_code)
     reminders = get_reminders_for_user(user_id)
 
     if not reminders:
-        await reply_success(update, "No reminders.")
+        await reply_success(update, t(user_id, "no_reminders"))
         return
 
-    lines = ["📋 Reminders:"]
+    lines = [t(user_id, "reminder_list_header")]
     for reminder_id, run_at, text in reminders:
         run_at_str = run_at.replace("+01:00", "")
-        lines.append(f"Reminder n°{reminder_id:>3} | Set to run at: {run_at_str} | Text: {text}")
+        lines.append(t(user_id, "reminder_list_item", id=reminder_id, time=run_at_str, text=text))
 
     message = "\n".join(lines)
     await reply_success(update, message)
 
 async def delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    user_id = update.effective_user.id
+    ensure_user_exists(user_id, update.effective_user.language_code)
     try:
         if len(context.args) < 1:
-            raise ValueError("Not enough arguments")
+            raise ValueError("ERR:ARGS")
         reminder_number = context.args[0]
+        #TODO check int
         if not check_reminder_exists(reminder_number):
-            await reply_error(update, f"Reminder number {reminder_number} does not exist.")
+            await reply_error(update, t(user_id, "reminder_does_not_exist", number=reminder_number))
             return
         delete_user_reminder(reminder_number)
     except ValueError:
         await reply_error(update, "Usage:\n/delete reminder_number")
         return
+
+async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    ensure_user_exists(user_id, update.effective_user.language_code)
+    if not context.args:
+        await reply_error(
+            update,
+            t(user_id, "set_language_usage", languages=(', '.join(sorted(SUPPORTED_LANGUAGES))))
+        )
+        return
+
+    lang = context.args[0]
+
+    if lang not in SUPPORTED_LANGUAGES:
+        await reply_error(
+            update,
+            t(user_id, "unsupported_language", languages=(', '.join(sorted(SUPPORTED_LANGUAGES))))
+        )
+        return
+
+    set_user_language(user_id, lang)
+
+    await reply_success(update, t(user_id, "set_language_success", language=lang))
+

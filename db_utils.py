@@ -16,7 +16,8 @@ def init_db():
         cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY,
-            timezone_offset INTEGER DEFAULT 0
+            timezone_offset INTEGER DEFAULT 0,
+            language TEXT DEFAULT 'en'
         )
         """)
         cur.execute("""
@@ -126,3 +127,44 @@ def check_reminder_exists(reminder_id: int):
         res = cur.fetchone()
         conn.commit()
         return res is not None
+
+
+def ensure_user_exists(user_id: int, tg_lang: str | None):
+    lang = "en"
+
+    if tg_lang:
+        # Normalize: keep only primary part (fr, en, es)
+        lang = tg_lang.split("-")[0]
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO users (id, timezone_offset, language)
+            VALUES (?, 0, ?)
+            ON CONFLICT(id) DO NOTHING
+            """,
+            (user_id, lang),
+        )
+        conn.commit()
+
+
+def get_user_language(user_id: int) -> str:
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT language FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        return row[0] if row else "en"
+
+def set_user_language(user_id: int, language: str):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO users (id, language)
+            VALUES (?, ?)
+            ON CONFLICT(id) DO UPDATE SET language = excluded.language
+            """,
+            (user_id, language),
+        )
+        conn.commit()

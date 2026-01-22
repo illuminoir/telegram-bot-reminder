@@ -2,7 +2,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler
 
 from config import TOKEN
 from db_utils import init_db
-from handlers import help_command, set_timezone, set_daily, set_once, list_reminders, delete_reminder
+from handlers import help_command, set_timezone, set_daily, set_once, list_reminders, delete_reminder, set_language
 from scheduler import reload_all_reminders
 
 
@@ -23,6 +23,7 @@ def main():
     app.add_handler(CommandHandler("settz", set_timezone))
     app.add_handler(CommandHandler("list", list_reminders))
     app.add_handler(CommandHandler("delete", delete_reminder))
+    app.add_handler(CommandHandler("setlang", set_language))
 
     app.run_polling()
 

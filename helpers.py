@@ -2,7 +2,10 @@ from datetime import datetime, date, timezone, timedelta
 from telegram import Update
 
 from config import MIN_UTC_OFFSET, MAX_UTC_OFFSET
-from db_utils import get_user_timezone
+from db_utils import get_user_timezone, get_user_language
+
+from i18n import MESSAGES
+
 
 
 # ---------- Reply Helpers ----------
@@ -68,3 +71,12 @@ def validate_offset(offset: int) -> bool:
 def create_datetime_with_tz(d: date, hour: int, minute: int, tz: timezone) -> datetime:
     """Create a timezone-aware datetime from date and time components."""
     return datetime(d.year, d.month, d.day, hour, minute, tzinfo=tz)
+
+
+# ---------- i18n Helpers ----------
+def t(user_id: int, key: str, **kwargs) -> str:
+    lang = get_user_language(user_id)
+    catalog = MESSAGES.get(lang, MESSAGES["en"])
+    template = catalog.get(key, key)
+    return template.format(**kwargs)
+
