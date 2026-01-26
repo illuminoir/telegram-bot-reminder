@@ -36,6 +36,7 @@ The database (`reminders.db`) is created automatically on first run.
 | `/setdaily HH:MM [message]` | Set a daily recurring reminder                                   |
 | `/list` | View all your active reminders                                   |
 | `/delete <id>` | Delete a reminder by its ID                                      |
+| `/setlang <language>` | Change the bot's language                                      |
 
 ## Examples
 
@@ -45,7 +46,13 @@ The database (`reminders.db`) is created automatically on first run.
 /setdaily 08:30 Morning standup meeting
 /list
 /delete 3
+/setlang en
+/setlang fr
 ```
+
+## Supported languages
+
+French, English
 
 ## Tech Stack
 
