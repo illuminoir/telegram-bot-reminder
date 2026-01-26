@@ -4,6 +4,8 @@ I use reminders to schedule my days, I often schedule messages to myself using T
 
 With this bot you can send daily or one-time reminders, for different timezones. It uses a default of UTC+0, make sure to set the timezone for your scheduled reminders.
 
+Try it yourself, @RemindAllanBot on Telegram and send the `/help` command!
+
 ## Installation
 
 ```bash
@@ -13,9 +15,9 @@ pip install -r requirements.txt
 ## Setup
 
 1. Create a bot via [@BotFather](https://t.me/botfather) and copy the token
-2. Set the `BOT_TOKEN` environment variable:
+2. Set the `TELEGRAM_TOKEN` environment variable:
    ```bash
-   export BOT_TOKEN="your_token_here"
+   export TELEGRAM_TOKEN="your_token_here"
    ```
 3. Run the bot:
    ```bash
